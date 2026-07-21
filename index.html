@@ -1,0 +1,647 @@
+<title>Prompt Condenser — Test Bench</title>
+<style>
+  :root {
+    --bg: #EDEFE8;
+    --surface: #F6F7F2;
+    --surface-2: #E4E7DC;
+    --border: #C9CDBE;
+    --ink: #20241F;
+    --ink-muted: #5B6158;
+    --accent: #B4791E;
+    --accent-strong: #8F5F14;
+    --removed: #A6432E;
+    --removed-tint: rgba(166, 67, 46, 0.12);
+    --kept: #3E7A67;
+    --kept-tint: rgba(62, 122, 103, 0.14);
+    --warn: #A6432E;
+    --font-mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", "JetBrains Mono", monospace;
+    --font-sans: -apple-system, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171A14;
+      --surface: #1E2219;
+      --surface-2: #262B1F;
+      --border: #3A4032;
+      --ink: #E8EAE0;
+      --ink-muted: #9BA394;
+      --accent: #D9A44B;
+      --accent-strong: #F0BE6E;
+      --removed: #E07456;
+      --removed-tint: rgba(224, 116, 86, 0.16);
+      --kept: #6FBBA0;
+      --kept-tint: rgba(111, 187, 160, 0.16);
+      --warn: #E07456;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #171A14;
+    --surface: #1E2219;
+    --surface-2: #262B1F;
+    --border: #3A4032;
+    --ink: #E8EAE0;
+    --ink-muted: #9BA394;
+    --accent: #D9A44B;
+    --accent-strong: #F0BE6E;
+    --removed: #E07456;
+    --removed-tint: rgba(224, 116, 86, 0.16);
+    --kept: #6FBBA0;
+    --kept-tint: rgba(111, 187, 160, 0.16);
+    --warn: #E07456;
+  }
+  :root[data-theme="light"] {
+    --bg: #EDEFE8;
+    --surface: #F6F7F2;
+    --surface-2: #E4E7DC;
+    --border: #C9CDBE;
+    --ink: #20241F;
+    --ink-muted: #5B6158;
+    --accent: #B4791E;
+    --accent-strong: #8F5F14;
+    --removed: #A6432E;
+    --removed-tint: rgba(166, 67, 46, 0.12);
+    --kept: #3E7A67;
+    --kept-tint: rgba(62, 122, 103, 0.14);
+    --warn: #A6432E;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    margin: 0;
+    padding: 0;
+  }
+  body {
+    padding: 2.5rem 1.5rem 4rem;
+  }
+  .wrap {
+    max-width: 1140px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+  }
+
+  header.top {
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 1.25rem;
+  }
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+  }
+  h1 {
+    font-family: var(--font-mono);
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .sub {
+    color: var(--ink-muted);
+    font-size: 0.92rem;
+    max-width: 62ch;
+    line-height: 1.5;
+  }
+
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .stat {
+    background: var(--surface);
+    padding: 0.9rem 1.1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+  .stat .label {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .stat .value {
+    font-family: var(--font-mono);
+    font-size: 1.7rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+  .stat.reduction .value { color: var(--kept); }
+
+  .rules {
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.9rem 1rem 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+  }
+  .rules .heading {
+    font-family: var(--font-mono);
+    font-size: 0.66rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+  }
+  .rule-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .rule-pill {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.4rem 0.65rem;
+    cursor: pointer;
+    user-select: none;
+  }
+  .rule-pill input {
+    accent-color: var(--accent);
+    width: 0.95rem;
+    height: 0.95rem;
+    margin: 0;
+  }
+  .rule-pill span.name {
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+  }
+  .rule-pill.risky span.name { color: var(--warn); }
+  .rule-pill.risky {
+    border-style: dashed;
+  }
+  .rule-note {
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+    line-height: 1.5;
+  }
+
+  .panels {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+  }
+  @media (max-width: 760px) {
+    .panels { grid-template-columns: 1fr; }
+    .stats { grid-template-columns: 1fr; }
+  }
+  .panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .panel .label {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--ink-muted);
+    display: flex;
+    justify-content: space-between;
+  }
+  textarea, .diff-render {
+    font-family: var(--font-mono);
+    font-size: 0.92rem;
+    line-height: 1.6;
+    background: var(--surface);
+    color: var(--ink);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.9rem 1rem;
+    min-height: 220px;
+    resize: vertical;
+  }
+  textarea {
+    width: 100%;
+  }
+  textarea:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  textarea[readonly] {
+    color: var(--ink);
+  }
+
+  .diff-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .diff-render {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-x: auto;
+  }
+  .diff-render del {
+    text-decoration: none;
+    background: var(--removed-tint);
+    color: var(--removed);
+    text-decoration: line-through;
+    text-decoration-color: var(--removed);
+  }
+  .diff-render ins {
+    text-decoration: none;
+    background: var(--kept-tint);
+    color: var(--kept);
+    text-decoration: underline;
+  }
+  .legend {
+    display: flex;
+    gap: 1.2rem;
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+  }
+  .legend .swatch {
+    display: inline-block;
+    width: 0.7rem;
+    height: 0.7rem;
+    border-radius: 2px;
+    margin-right: 0.35rem;
+    vertical-align: -1px;
+  }
+  .legend .swatch.rm { background: var(--removed); }
+  .legend .swatch.kp { background: var(--kept); }
+
+  footer {
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+    font-size: 0.78rem;
+    color: var(--ink-muted);
+    line-height: 1.5;
+  }
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div class="eyebrow">Prompt Condenser — Test Bench</div>
+    <h1>Rule-based prompt compression, no API calls</h1>
+    <div class="sub">Paste a prompt on the left. Every rule below runs as plain-text pattern matching in your browser — nothing is sent anywhere, so testing a rule costs zero tokens.</div>
+  </header>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="label">Tokens in</div>
+      <div class="value" id="statIn">—</div>
+    </div>
+    <div class="stat">
+      <div class="label">Tokens out</div>
+      <div class="value" id="statOut">—</div>
+    </div>
+    <div class="stat reduction">
+      <div class="label">Reduction</div>
+      <div class="value" id="statReduction">—</div>
+    </div>
+  </div>
+
+  <div class="rules">
+    <div class="heading">Compression rules</div>
+    <div class="rule-grid" id="ruleGrid"></div>
+    <div class="rule-note">Approx. token counts (~4 chars/token, adjusted for long words) — for comparing before/after, not exact BPE.</div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="label"><span>Input prompt</span></div>
+      <textarea id="inputBox" spellcheck="false"></textarea>
+    </div>
+    <div class="panel">
+      <div class="label"><span>Condensed output</span></div>
+      <textarea id="outputBox" readonly spellcheck="false"></textarea>
+    </div>
+  </div>
+
+  <div class="diff-section">
+    <div class="label">
+      <span>What changed</span>
+    </div>
+    <div class="legend">
+      <span><span class="swatch rm"></span>removed</span>
+      <span><span class="swatch kp"></span>substituted</span>
+    </div>
+    <div class="diff-render" id="diffRender"></div>
+  </div>
+
+  <footer>
+    Structural mode looks for an explicit role statement ("You are a...", "Act as a...") and format asks ("in bullet points", "under 200 words", "as JSON") and re-emits them as labeled fields. Aggressive stopword trim strips articles and is off by default — it tends to degrade clarity more than it saves.
+  </footer>
+</div>
+
+<script>
+(function () {
+  const RULES = [
+    { id: "hedges", name: "Hedges & politeness", risky: false, default: true,
+      desc: "please / could you / I was wondering if" },
+    { id: "filler", name: "Filler & intensifiers", risky: false, default: true,
+      desc: "just, basically, actually, really, very" },
+    { id: "wordy", name: "Wordy phrase swap", risky: false, default: true,
+      desc: "\"due to the fact that\" → \"because\"" },
+    { id: "imperative", name: "Question → imperative", risky: false, default: true,
+      desc: "\"Can you write...\" → \"Write...\"" },
+    { id: "structural", name: "Role / Task / Format", risky: false, default: true,
+      desc: "extracts role + format into labeled fields" },
+    { id: "stopwords", name: "Aggressive stopword trim", risky: true, default: false,
+      desc: "strips a/an/the — experimental, often hurts clarity" }
+  ];
+
+  const HEDGE_PATTERNS = [
+    /\bi was wondering if you (could|can|would)\b\s*/gi,
+    /\bi'?d like to know if you (could|can)\b\s*/gi,
+    /\bwould you (mind |please )?/gi,
+    /\bcould you (please )?/gi,
+    /\bif (that'?s|it'?s) (okay|ok|alright|fine)[,]?\s*/gi,
+    /\bi think (that )?/gi,
+    /\bi believe (that )?/gi,
+    /\bin my opinion,?\s*/gi,
+    /\bplease\b\s*/gi,
+    /\bthanks?( you)?( so much)?( in advance)?[.!]?\s*/gi,
+    /\bthank you[.!]?\s*/gi,
+    /\bhi[,!]?\s*/gi,
+    /\bhello[,!]?\s*/gi
+  ];
+
+  const FILLER_WORDS = [
+    "just", "basically", "actually", "really", "very", "simply",
+    "essentially", "kind of", "sort of", "literally", "definitely",
+    "certainly", "quite", "rather", "somewhat", "honestly", "so much"
+  ];
+
+  const WORDY_MAP = [
+    [/\bin order to\b/gi, "to"],
+    [/\bdue to the fact that\b/gi, "because"],
+    [/\bat this point in time\b/gi, "now"],
+    [/\ba large number of\b/gi, "many"],
+    [/\bin the event that\b/gi, "if"],
+    [/\bfor the purpose of\b/gi, "to"],
+    [/\bwith regards? to\b/gi, "regarding"],
+    [/\bin spite of the fact that\b/gi, "although"],
+    [/\bon a regular basis\b/gi, "regularly"],
+    [/\bmake sure that\b/gi, "ensure"],
+    [/\btake into consideration\b/gi, "consider"],
+    [/\ba (?:number|couple) of\b/gi, "some"]
+  ];
+
+  const IMPERATIVE_PATTERNS = [
+    /^can you (please )?/i,
+    /^could you (please )?/i,
+    /^would you (be able to |please )?/i,
+    /^do you think you could\s*/i,
+    /^i need you to\s*/i,
+    /^i want you to\s*/i
+  ];
+
+  const ROLE_PATTERN = /(?:^|[.\n]\s*)(?:you are|act as|please act as|imagine you'?re|imagine you are)\s+(?:an?\s+)?([^.\n]{2,80})[.\n]/i;
+
+  const FORMAT_PATTERNS = [
+    /\bin bullet points?\b/i,
+    /\bas a bulleted list\b/i,
+    /\bas a list\b/i,
+    /\bin (?:a )?json(?: format)?\b/i,
+    /\bas (?:a )?table\b/i,
+    /\bin table format\b/i,
+    /\bas markdown\b/i,
+    /\bin markdown\b/i,
+    /\bunder (\d+) words\b/i,
+    /\bin no more than (\d+) words\b/i,
+    /\bin (\d+) words or less\b/i
+  ];
+
+  function collapseWhitespace(text) {
+    return text
+      .replace(/[ \t]+/g, " ")
+      .replace(/\s+([,.;:!?])/g, "$1")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/^[ \t]+|[ \t]+$/gm, "")
+      .trim();
+  }
+
+  function capitalizeFirst(text) {
+    return text.replace(/^\s*([a-z])/, (m, c) => c.toUpperCase());
+  }
+
+  function applyImperative(text) {
+    let out = text;
+    let converted = false;
+    for (const re of IMPERATIVE_PATTERNS) {
+      if (re.test(out)) {
+        out = out.replace(re, "");
+        converted = true;
+      }
+    }
+    if (converted) {
+      out = capitalizeFirst(out);
+      out = out.replace(/\?\s*$/, ".");
+    }
+    return out;
+  }
+
+  function applyFiller(text) {
+    let out = text;
+    for (const w of FILLER_WORDS) {
+      const re = new RegExp("\\b" + w.replace(/ /g, "\\s+") + "\\b\\s*", "gi");
+      out = out.replace(re, "");
+    }
+    return out;
+  }
+
+  function applyWordy(text) {
+    let out = text;
+    for (const [re, sub] of WORDY_MAP) out = out.replace(re, sub);
+    return out;
+  }
+
+  function applyHedges(text) {
+    let out = text;
+    for (const re of HEDGE_PATTERNS) out = out.replace(re, "");
+    return out;
+  }
+
+  function applyStopwords(text) {
+    return text.replace(/\b(the|a|an)\b\s*/gi, "");
+  }
+
+  function extractStructural(text) {
+    let role = null;
+    let format = [];
+    let body = text;
+
+    const roleMatch = body.match(ROLE_PATTERN);
+    if (roleMatch) {
+      role = roleMatch[1].trim();
+      body = body.replace(roleMatch[0], roleMatch[0].startsWith("\n") ? "\n" : " ");
+    }
+
+    for (const re of FORMAT_PATTERNS) {
+      const m = body.match(re);
+      if (m) {
+        format.push(m[0].trim());
+        body = body.replace(re, "");
+      }
+    }
+
+    return { role, format: format.join("; ") || null, body };
+  }
+
+  function compress(text, opts) {
+    if (!text.trim()) return "";
+
+    let role = null, format = null, body = text;
+    if (opts.structural) {
+      const ext = extractStructural(text);
+      role = ext.role;
+      format = ext.format;
+      body = ext.body;
+    }
+
+    if (opts.hedges) body = applyHedges(body);
+    if (opts.wordy) body = applyWordy(body);
+    if (opts.filler) body = applyFiller(body);
+    if (opts.imperative) {
+      body = body
+        .split(/(?<=[.\n])\s*/)
+        .map(applyImperative)
+        .join(" ");
+    }
+    if (opts.stopwords) body = applyStopwords(body);
+
+    body = collapseWhitespace(body);
+
+    if (opts.structural && (role || format)) {
+      const parts = [];
+      if (role) parts.push("Role: " + role);
+      parts.push("Task: " + body);
+      if (format) parts.push("Format: " + format);
+      return parts.join("\n");
+    }
+
+    return body;
+  }
+
+  function approxTokenCount(text) {
+    if (!text.trim()) return 0;
+    const matches = text.match(/[\w']+|[^\s\w]/g) || [];
+    let count = 0;
+    for (const m of matches) {
+      count += /[\w']+/.test(m) && m.length >= 7 ? 2 : 1;
+    }
+    return count;
+  }
+
+  function tokenizeForDiff(text) {
+    return text.split(/(\s+)/).filter((t) => t.length > 0);
+  }
+
+  function diffWords(a, b) {
+    const n = a.length, m = b.length;
+    const dp = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+    for (let i = n - 1; i >= 0; i--) {
+      for (let j = m - 1; j >= 0; j--) {
+        dp[i][j] = a[i] === b[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+      }
+    }
+    const result = [];
+    let i = 0, j = 0;
+    while (i < n && j < m) {
+      if (a[i] === b[j]) { result.push({ type: "same", word: a[i] }); i++; j++; }
+      else if (dp[i + 1][j] >= dp[i][j + 1]) { result.push({ type: "removed", word: a[i] }); i++; }
+      else { result.push({ type: "added", word: b[j] }); j++; }
+    }
+    while (i < n) { result.push({ type: "removed", word: a[i] }); i++; }
+    while (j < m) { result.push({ type: "added", word: b[j] }); j++; }
+    return result;
+  }
+
+  function renderDiff(container, original, compressed) {
+    container.innerHTML = "";
+    if (!original.trim()) return;
+    const a = tokenizeForDiff(original);
+    const b = tokenizeForDiff(compressed);
+    const diff = diffWords(a, b);
+    for (const part of diff) {
+      if (part.type === "same") {
+        container.appendChild(document.createTextNode(part.word));
+      } else if (part.type === "removed") {
+        const del = document.createElement("del");
+        del.textContent = part.word;
+        container.appendChild(del);
+      } else {
+        const ins = document.createElement("ins");
+        ins.textContent = part.word;
+        container.appendChild(ins);
+      }
+    }
+  }
+
+  const ruleGrid = document.getElementById("ruleGrid");
+  const state = {};
+  RULES.forEach((rule) => {
+    state[rule.id] = rule.default;
+    const label = document.createElement("label");
+    label.className = "rule-pill" + (rule.risky ? " risky" : "");
+    label.title = rule.desc;
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = rule.default;
+    input.addEventListener("change", () => {
+      state[rule.id] = input.checked;
+      run();
+    });
+    const span = document.createElement("span");
+    span.className = "name";
+    span.textContent = rule.name;
+    label.appendChild(input);
+    label.appendChild(span);
+    ruleGrid.appendChild(label);
+  });
+
+  const inputBox = document.getElementById("outputBox") ? document.getElementById("inputBox") : null;
+  const outputBox = document.getElementById("outputBox");
+  const statIn = document.getElementById("statIn");
+  const statOut = document.getElementById("statOut");
+  const statReduction = document.getElementById("statReduction");
+  const diffRender = document.getElementById("diffRender");
+
+  function run() {
+    const original = inputBox.value;
+    const compressed = compress(original, state);
+    outputBox.value = compressed;
+
+    const tIn = approxTokenCount(original);
+    const tOut = approxTokenCount(compressed);
+    statIn.textContent = original.trim() ? tIn : "—";
+    statOut.textContent = original.trim() ? tOut : "—";
+    statReduction.textContent = original.trim() && tIn > 0
+      ? Math.round((1 - tOut / tIn) * 100) + "%"
+      : "—";
+
+    renderDiff(diffRender, original, compressed);
+  }
+
+  document.getElementById("inputBox").addEventListener("input", run);
+
+  document.getElementById("inputBox").value =
+    "Hi! I was wondering if you could possibly help me write a Python function that basically checks if a number is prime. Could you please make sure it's efficient? Thanks so much in advance!";
+
+  run();
+})();
+</script>
