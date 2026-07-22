@@ -12,4 +12,8 @@ Self-contained test bench: paste a prompt, toggle rule categories on/off, see to
 
 ## Status
 
-Early prototype. Next: port the rule engine into a Chrome extension (Manifest V3) that runs it against the input box on chat.openai.com / claude.ai before submission.
+Early prototype. Next: port the rule engine into a Chrome extension (Manifest V3) that runs it against the input box on claude.ai first, then chat.openai.com.
+
+## `DECISIONS.md`
+
+Running log of the reasoning behind the project's design choices (why rule-based, why Claude first, known limitations, bugs found along the way). Worth a read if you want the "why" behind the code, not just the "what."

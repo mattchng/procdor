@@ -1,6 +1,14 @@
-# notes / how we got here
+# decision log
 
-quick informal log of the reasoning behind this project so far, mostly so future-us remembers why things are the way they are.
+informal running log of the reasoning + decisions behind this project, mostly so future-us (and anyone else poking around this repo) can see why things are the way they are instead of just what they are.
+
+## quick summary
+
+- **no llm calls for the core rewrite** — compression runs as plain regex/heuristics, client-side, free. paying tokens to save tokens defeats the point.
+- **protected spans are always on** — code blocks, few-shot examples, reasoning scaffolds (ReAct/CoT), and quotes are preserved verbatim, never touched by compression rules.
+- **plain labeled text (`Role:`/`Task:`) is the default output, not json or xml** — both cost more tokens than plain text due to tag/quote overhead. xml is a claude-specific quality lever, not a compression one.
+- **semantic (embedding-based) duplicate detection is deferred to v2** — current jaccard/word-overlap dedup only catches literal restatements, not paraphrases. fine for now.
+- **building for claude.ai first, not chatgpt** — claude's usage limit is token-based (shorter prompts = more messages before hitting the cap), chatgpt plus's is a flat message count (prompt length doesn't matter). the product's core pitch is only mechanically true on claude.
 
 ## the original idea
 
@@ -55,6 +63,21 @@ worth remembering since they were sneaky:
 
 fixed by: reordering imperative-conversion before hedge-stripping, switching the imperative pass to the same chunk-splitter (exact separator preservation) the other rules use, and patching the filler regex to eat an optional trailing comma.
 
+## which platform to build for first: claude.ai vs chatgpt
+
+technically the two are basically a wash — both use a contenteditable rich-text input rather than a plain textarea, so dom handling complexity is similar either way.
+
+the deciding factor turned out to be how each platform actually enforces usage limits, which we looked up rather than assumed:
+
+- **claude.ai**: the usage limit explicitly tracks *tokens*, not message count — long messages, large files, and deep conversation history all draw down the same pool. shortening a prompt genuinely buys more turns before hitting the wall.
+- **chatgpt plus**: the cap is a flat *message count* (e.g. 160 messages per 3-hour window) — a message is a message regardless of length. condensing a prompt doesn't stretch this cap at all (short of hitting context/file-size ceilings).
+
+that's a real problem for chatgpt-first: the whole pitch is "condense your prompt to preserve usage allowance," and that claim is basically false on chatgpt. it's mechanically true on claude.
+
+audience fit also favors claude: its userbase skews toward developers/prompt-engineering-literate power users who actually hit and care about usage caps, vs chatgpt's much larger but more casual free-tier base. plus the xml-tag v2 feature is claude-specific anyway, so building there first gives it somewhere to land immediately.
+
+**decision: build the content script against claude.ai first.** structuring the extension with a site-adapter pattern from day one (one small module per site defining how to find/read/write the input box) so chatgpt support later is additive, not a rewrite — just note its marketing pitch would need to shift to something honest like "avoid context overflow" rather than "beat the usage cap," since the quota story doesn't apply there.
+
 ## current status
 
-test bench (`index.html`) works: paste a prompt, toggle rule categories, see token estimate + inline diff of what changed. next step is scaffolding the actual chrome extension (manifest v3, content script to grab the input box on chat sites) — rules will keep getting refined as we go rather than being "finished" first.
+test bench (`index.html`) works: paste a prompt, toggle rule categories, see token estimate + inline diff of what changed. next step is scaffolding the actual chrome extension (manifest v3, content script targeting claude.ai first) — rules will keep getting refined as we go rather than being "finished" first.
