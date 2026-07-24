@@ -1,0 +1,48 @@
+#procdor-condense-btn {
+  all: unset;
+  position: fixed;
+  right: 24px;
+  bottom: 120px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  padding: 0.5rem 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+  background: #B4791E;
+  color: #FFFFFF;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+#procdor-condense-btn:hover {
+  background: #8F5F14;
+}
+
+#procdor-condense-btn:focus-visible {
+  outline: 2px solid #FFFFFF;
+  outline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  #procdor-condense-btn {
+    background: #D9A44B;
+    color: #171A14;
+  }
+  #procdor-condense-btn:hover {
+    background: #F0BE6E;
+  }
+}
+
+#procdor-badge {
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+#procdor-badge.procdor-badge-show {
+  opacity: 1;
+}

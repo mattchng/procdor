@@ -1,0 +1,79 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Procdor</title>
+<style>
+  :root {
+    --bg: #F6F7F2;
+    --border: #C9CDBE;
+    --ink: #20241F;
+    --ink-muted: #5B6158;
+    --accent: #B4791E;
+    --accent-strong: #8F5F14;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1E2219;
+      --border: #3A4032;
+      --ink: #E8EAE0;
+      --ink-muted: #9BA394;
+      --accent: #D9A44B;
+      --accent-strong: #F0BE6E;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    width: 300px;
+    margin: 0;
+    padding: 0.9rem;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", sans-serif;
+  }
+  h1 {
+    font-family: ui-monospace, "SF Mono", monospace;
+    font-size: 0.85rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--accent-strong);
+    margin: 0 0 0.7rem;
+  }
+  label {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+  }
+  label:last-of-type { border-bottom: none; }
+  input {
+    accent-color: var(--accent);
+    margin-top: 0.2rem;
+  }
+  .name {
+    font-size: 0.82rem;
+    font-weight: 600;
+  }
+  .desc {
+    font-size: 0.74rem;
+    color: var(--ink-muted);
+    line-height: 1.4;
+  }
+  footer {
+    margin-top: 0.8rem;
+    font-size: 0.7rem;
+    color: var(--ink-muted);
+    line-height: 1.4;
+  }
+</style>
+</head>
+<body>
+  <h1>Procdor — active rules</h1>
+  <div id="rules"></div>
+  <footer>Applies on claude.ai. Look for the ⟪ Condense button near your composer.</footer>
+  <script src="lib/compress.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
