@@ -82,11 +82,12 @@ audience fit also favors claude: its userbase skews toward developers/prompt-eng
 
 built `extension/` as a manifest v3 chrome extension targeting claude.ai: `lib/compress.js` (the same rule engine as `index.html`, extracted so both share one tested implementation), `content.js` (finds the composer, injects a floating condense button), `content.css`, and a `popup.html`/`popup.js` for toggling which rules are active (synced via `chrome.storage.sync` so the content script picks up changes live).
 
-two things worth flagging about `content.js`:
+one thing worth flagging about `content.js`:
 
-- **composer detection is unverified against the live site.** tried to inspect claude.ai's actual dom via browser automation first rather than guess from memory, but that wasn't available this session. went with a fallback chain of selectors (aria-label / data-placeholder / bare contenteditable, filtered by visible size) instead of one brittle selector, on the theory that semantic attributes are more stable than generated class names — but this genuinely needs to be loaded as an unpacked extension and checked against the real page before trusting it.
 - **writing text back into the composer uses `document.execCommand("insertText", ...)`**, not a direct `textContent` assignment. claude's composer is almost certainly a framework-controlled contenteditable (react/prosemirror-ish), and directly mutating the dom bypasses the input events those frameworks listen for — the displayed text and the framework's internal state end up disagreeing, which is why programmatic text injection into rich editors like this conventionally goes through execCommand (or a fired `InputEvent`) instead.
+
+**update:** loaded it unpacked and tested against the real claude.ai — the composer-detection fallback chain (aria-label / data-placeholder / bare contenteditable, filtered by visible size) worked on the first try, no selector fixes needed. button shows up, condensing works, popup rule toggles take effect.
 
 ## current status
 
-test bench (`index.html`) and extension scaffold (`extension/`) both exist. next: load the extension unpacked in a real browser, confirm the composer selectors actually find claude's input box, and fix whatever's wrong. rules keep getting refined as we go rather than being "finished" first.
+test bench (`index.html`) and extension (`extension/`) both work end to end, confirmed against the real claude.ai. rules keep getting refined as we go rather than being "finished" first.
