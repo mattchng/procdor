@@ -78,6 +78,17 @@ audience fit also favors claude: its userbase skews toward developers/prompt-eng
 
 **decision: build the content script against claude.ai first.** structuring the extension with a site-adapter pattern from day one (one small module per site defining how to find/read/write the input box) so chatgpt support later is additive, not a rewrite — just note its marketing pitch would need to shift to something honest like "avoid context overflow" rather than "beat the usage cap," since the quota story doesn't apply there.
 
+## bug: orphaned commas + interjections blocking imperative conversion
+
+found while actually using the extension: `"Please, could you help me..."` left a stray leading comma behind. root cause turned out to be two things, not one:
+
+1. several hedge patterns (`please`, `could you`, `i think`, `thanks`, etc.) didn't consume a trailing comma, unlike the fix already applied to filler words earlier.
+2. bigger issue — imperative-conversion (the thing that turns "could you write...?" into "Write...") only checks if the question-form is the *very first* thing in the sentence. any interjection in front ("Please, could you...", "Thanks, can you...", "Well, I think...") blocked the match entirely, so hedges quietly ate the interjection on its own and left a lowercase, still-question-marked fragment behind with no capitalization/punctuation fix.
+
+patching the imperative regexes to individually special-case "please" fixed only that one word — "Thanks, can you...?" hit the identical bug with a different interjection. the actual fix: added a dedicated pre-pass (`stripLeadingInterjection`, gated by the hedges toggle) that strips any leading interjection — please/thanks/hi/hello/well/so/hey — from each sentence *before* imperative-conversion runs, so imperative always sees a clean sentence start no matter which politeness word came first. also broadened the orphaned-comma cleanup to fire after any sentence boundary (not just start-of-string/newline), and added a final `capitalizeSentences` pass so capitalization no longer depends on which specific rule happened to touch a sentence first.
+
+ported the identical fix to `extension/lib/compress.js` and diffed outputs against `index.html` on the same test cases to confirm both engines still agree — worth remembering that duplicating the engine between the test bench and the extension means every fix has to be applied twice by hand; that's a real maintenance cost worth revisiting (e.g. have `index.html` load `extension/lib/compress.js` via `<script src>` instead of an embedded copy) if bugs like this keep recurring.
+
 ## scaffolding the extension
 
 built `extension/` as a manifest v3 chrome extension targeting claude.ai: `lib/compress.js` (the same rule engine as `index.html`, extracted so both share one tested implementation), `content.js` (finds the composer, injects a floating condense button), `content.css`, and a `popup.html`/`popup.js` for toggling which rules are active (synced via `chrome.storage.sync` so the content script picks up changes live).

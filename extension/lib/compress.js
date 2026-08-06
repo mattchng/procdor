@@ -117,17 +117,17 @@
   }
 
   const HEDGE_PATTERNS = [
-    /\bi was wondering if you (could|can|would)\b\s*/gi,
-    /\bi'?d like to know if you (could|can)\b\s*/gi,
-    /\bwould you (mind |please )?/gi,
-    /\bcould you (please )?/gi,
+    /\bi was wondering if you (could|can|would)\b,?\s*/gi,
+    /\bi'?d like to know if you (could|can)\b,?\s*/gi,
+    /\bwould you (mind |please )?,?\s*/gi,
+    /\bcould you (please )?,?\s*/gi,
     /\bif (that'?s|it'?s) (okay|ok|alright|fine)[,]?\s*/gi,
-    /\bi think (that )?/gi,
-    /\bi believe (that )?/gi,
+    /\bi think (that )?,?\s*/gi,
+    /\bi believe (that )?,?\s*/gi,
     /\bin my opinion,?\s*/gi,
-    /\bplease\b\s*/gi,
-    /\bthanks?( you)?( so much)?( in advance)?[.!]?\s*/gi,
-    /\bthank you[.!]?\s*/gi,
+    /\bplease\b,?\s*/gi,
+    /\bthanks?( you)?( so much)?( in advance)?[.!]?,?\s*/gi,
+    /\bthank you[.!]?,?\s*/gi,
     /\bhi[,!]?\s*/gi,
     /\bhello[,!]?\s*/gi
   ];
@@ -162,6 +162,12 @@
     /^i want you to\s*/i
   ];
 
+  const LEADING_INTERJECTION = /^(?:please|thanks?(?: you)?|hi|hello|well|so|hey)[,!]?\s+/i;
+
+  function stripLeadingInterjection(text) {
+    return text.replace(LEADING_INTERJECTION, "");
+  }
+
   const ROLE_PATTERN = /(?:^|[.\n]\s*)(?:you are|act as|please act as|imagine you'?re|imagine you are)\s+(?:an?\s+)?([^.\n]{2,80})[.\n]/i;
 
   const FORMAT_PATTERNS = [
@@ -187,13 +193,21 @@
       .replace(/\n{3,}/g, "\n\n")
       .replace(/[ \t]+/g, " ")
       .replace(/\s+([,.;:!?])/g, "$1")
-      .replace(/(^|\n)[ \t]*[,;:]\s*/g, "$1")
+      .replace(/(?<=^|\n|[.!?] )[ \t]*[,;:]+\s*/g, "")
       .replace(/([.!?,;:])[,;:]+/g, "$1")
       .trim();
   }
 
   function capitalizeFirst(text) {
     return text.replace(/^\s*([a-z])/, (m, c) => c.toUpperCase());
+  }
+
+  function capitalizeSentences(text) {
+    const chunks = splitChunks(text);
+    for (let i = 0; i < chunks.length; i += 2) {
+      if (chunks[i] && chunks[i].trim()) chunks[i] = capitalizeFirst(chunks[i]);
+    }
+    return chunks.join("");
   }
 
   function applyImperative(text) {
@@ -282,6 +296,13 @@
     const { text: withTokens, store } = extractProtected(text);
     let body = withTokens;
 
+    if (opts.hedges) {
+      const chunks = splitChunks(body);
+      for (let i = 0; i < chunks.length; i += 2) {
+        if (chunks[i]) chunks[i] = stripLeadingInterjection(chunks[i]);
+      }
+      body = chunks.join("");
+    }
     if (opts.imperative) {
       const chunks = splitChunks(body);
       for (let i = 0; i < chunks.length; i += 2) {
@@ -294,6 +315,7 @@
     if (opts.filler) body = applyFiller(body);
     if (opts.redundant) body = collapseRedundant(body);
     if (opts.stopwords) body = applyStopwords(body);
+    body = capitalizeSentences(body);
 
     let role = null, format = null, context = null, constraints = [], examples = [];
     if (opts.structural) {
