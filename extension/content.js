@@ -80,6 +80,22 @@
     }
   }
 
+  // The structural (Role/Context/Task/Constraints bucketing) and duplicate-collapse
+  // rules assume a short conversational prompt. On a long or markdown-structured
+  // document they reorder sentences across sections and shred the formatting, so
+  // for that kind of input stick to the surface trims.
+  function rulesFor(text) {
+    const structured =
+      /^#{1,6}\s/m.test(text) ||       // markdown headings
+      /^\s*\|.+\|\s*$/m.test(text) ||  // table rows
+      /^\s*>\s/m.test(text) ||         // blockquotes
+      text.split("\n").length > 60;
+    if (text.length > 6000 || structured) {
+      return Object.assign({}, ruleState, { structural: false, redundant: false });
+    }
+    return ruleState;
+  }
+
   // Badge feedback — shared by the button and the paste handler.
   let badgeEl = null;
   let hideTimer;
@@ -121,7 +137,7 @@
 
       let output;
       try {
-        ({ output } = compress(original, ruleState));
+        ({ output } = compress(original, rulesFor(original)));
       } catch (err) {
         console.error("[Procdor] compress failed:", err);
         flash("error — see console");
@@ -221,12 +237,14 @@
 
     let output;
     try {
-      output = compress(text, ruleState).output;
+      output = compress(text, rulesFor(text)).output;
     } catch (err) {
       console.error("[Procdor] paste compress failed:", err);
       return;
     }
-    if (!output || !output.trim() || output.length >= text.length) return; // nothing gained
+    // only take over the paste if condensing meaningfully shrinks it (>=5%);
+    // otherwise leave it for claude.ai to handle however it normally would
+    if (!output || !output.trim() || output.length > text.length * 0.95) return;
 
     e.preventDefault();
     e.stopImmediatePropagation();

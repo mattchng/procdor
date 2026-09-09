@@ -154,6 +154,16 @@ what the live testing showed:
 
 shipped in the paste handler: after condensing, if the result is still big (same `isBigText` check) and the **"Keep still-large results as a .txt attachment"** toggle is on (`procdorPasteAttach`, default on, nested under the master toggle), call `attachAsFile()`. if it doesn't land within 500ms, fall back to inserting inline so a paste is never lost. a result that condensed down small just goes inline regardless.
 
+## a real 40k-char structured prompt "heavily glitches out" (2026-09-09)
+
+user pasted their actual venture-analyst report system prompt (~40k chars, heavy markdown: `##` headings, `|` tables, `>` blockquotes, WRONG/RIGHT example pairs). ran it through the engine offline. three separate faults:
+
+1. **`hierarchy` → `erarchy`.** the `hi`/`hello` hedge patterns were `/\bhi[,!]?\s*/gi` with no *trailing* `\b`, so they ate "hi" out of "**hi**erarchy", "highly", "him", etc. `thanks?` had the same hole ("thankfully" → "fully"). added the trailing `\b` to all three.
+2. **`U.S. firm` → `U.S. Firm`, and `Role:` extraction splitting on the "." in "U.S."** the sentence splitter treats every `. ` as a boundary. fixes: (a) `capitalizeSentences` now skips a fragment whose previous chunk ends in an abbreviation (`endsWithAbbrev`: `U.S`, `e.g`, `Inc`, lone initials, …); (b) `ROLE_PATTERN` replaced with `ROLE_LEAD` + a procedural scan that walks to the first sentence-ending period that *isn't* preceded by a capital letter, so "leading U.S. firm." is captured whole. (note: `[A-Z]` inside a `/i` regex matches lowercase too — that's why the lookbehind approach failed and it's done procedurally with a case-sensitive check.)
+3. **the `structural` (Role/Context/Task/Constraints bucketing) and `redundant` (dup-collapse) rules shredded the document** — they assume a short "you are X, do Y" prompt and instead reordered sentences across all 15 sections and yanked every constraint-shaped sentence into one blob. fix: `content.js` now has `rulesFor(text)` — if the input is long (>6k chars) or markdown-structured (headings / table rows / blockquotes / >60 lines), it runs **surface trims only** (hedges, filler, wordy, imperative), with `structural` and `redundant` forced off. applies to both the paste path and the Condense button.
+
+also: `collapseWhitespace` was flattening all leading indentation (`/^[ \t]+/gm`), which breaks markdown nesting and the indented RIGHT/WRONG pairs — rewritten to be line-aware and preserve each line's leading indent while still tidying the rest. and the paste path now requires a **≥5% size reduction** before taking over the paste, so it leaves an already-tight structured doc alone rather than clobbering it to save 3 tokens.
+
 ## current status
 
 engine is single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op, fragment-stripping, non-win, large-paste-intercept, and condense-to-attachment are all in. the individual mechanisms are verified against live claude.ai (capture-phase paste block; File→input→attachment); the **end-to-end flow through the reloaded extension still needs a live confirm** (content-script changes don't hot-reload, and browser automation can't reload an unpacked extension). rules keep getting refined as we go rather than being "finished" first.

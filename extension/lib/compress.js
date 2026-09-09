@@ -126,10 +126,10 @@
     /\bi believe (that )?,?\s*/gi,
     /\bin my opinion,?\s*/gi,
     /\bplease\b,?\s*/gi,
-    /\bthanks?( you)?( so much)?( in advance)?[.!]?,?\s*/gi,
-    /\bthank you[.!]?,?\s*/gi,
-    /\bhi[,!]?\s*/gi,
-    /\bhello[,!]?\s*/gi
+    /\bthanks?\b( you)?( so much)?( in advance)?[.!]?,?\s*/gi,
+    /\bthank you\b[.!]?,?\s*/gi,
+    /\bhi\b[,!]?\s*/gi,
+    /\bhello\b[,!]?\s*/gi
   ];
 
   const FILLER_WORDS = [
@@ -215,7 +215,7 @@
     return result.trim() ? result : text;
   }
 
-  const ROLE_PATTERN = /(?:^|[.\n]\s*)(?:you are|act as|please act as|imagine you'?re|imagine you are)\s+(?:an?\s+)?([^.\n]{2,80})[.\n]/i;
+  const ROLE_LEAD = /(?:^|[.\n]\s*)((?:you are|act as|please act as|imagine you'?re|imagine you are)\s+(?:an?\s+)?)/i;
 
   const FORMAT_PATTERNS = [
     /\bin bullet points?\b/i,
@@ -234,13 +234,20 @@
   ];
 
   function collapseWhitespace(text) {
-    return text
-      .replace(/[ \t]+$/gm, "")
-      .replace(/^[ \t]+/gm, "")
+    const lines = text.split("\n").map((line) => {
+      // keep each line's leading indentation (markdown nesting, aligned blocks)
+      // but tidy everything after it
+      const lead = (line.match(/^[ \t]*/) || [""])[0];
+      const body = line.slice(lead.length)
+        .replace(/[ \t]+$/, "")
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/ +([,.;:!?])/g, "$1")
+        .replace(/^[,;:]+\s*/, "");
+      return body ? lead + body : "";
+    });
+    return lines.join("\n")
       .replace(/\n{3,}/g, "\n\n")
-      .replace(/[ \t]+/g, " ")
-      .replace(/\s+([,.;:!?])/g, "$1")
-      .replace(/(?<=^|\n|[.!?] )[ \t]*[,;:]+\s*/g, "")
+      .replace(/([.!?]) +[,;:]+ */g, "$1 ")
       .replace(/([.!?,;:])[,;:]+/g, "$1")
       .trim();
   }
@@ -249,10 +256,23 @@
     return text.replace(/^\s*([a-z])/, (m, c) => c.toUpperCase());
   }
 
+  // "U.S." / "e.g." / "Inc." etc. end a chunk without ending a sentence — the
+  // splitter breaks there anyway, so don't capitalize the fragment after it.
+  function endsWithAbbrev(s) {
+    const m = s.trimEnd().match(/(\S+)$/);
+    if (!m) return false;
+    const last = m[1].replace(/[)"'\]]+$/, "");
+    if (/^[A-Za-z](\.[A-Za-z])+$/.test(last)) return true;   // U.S, e.g, i.e
+    if (/^[A-Z]$/.test(last)) return true;                   // lone initial
+    return /^(etc|vs|inc|ltd|corp|co|dr|mr|mrs|ms|prof|sr|jr|st|no|fig|vol|approx|dept|est|al)$/i.test(last);
+  }
+
   function capitalizeSentences(text) {
     const chunks = splitChunks(text);
     for (let i = 0; i < chunks.length; i += 2) {
-      if (chunks[i] && chunks[i].trim()) chunks[i] = capitalizeFirst(chunks[i]);
+      if (!chunks[i] || !chunks[i].trim()) continue;
+      if (i >= 2 && chunks[i - 2] && endsWithAbbrev(chunks[i - 2])) continue;
+      chunks[i] = capitalizeFirst(chunks[i]);
     }
     return chunks.join("");
   }
@@ -306,10 +326,27 @@
 
   function extractRoleAndFormat(body) {
     let role = null;
-    const roleMatch = body.match(ROLE_PATTERN);
-    if (roleMatch) {
-      role = roleMatch[1].trim();
-      body = body.replace(roleMatch[0], roleMatch[0].startsWith("\n") ? "\n" : " ");
+    const lead = body.match(ROLE_LEAD);
+    if (lead) {
+      const restStart = lead.index + lead[0].length;
+      const rest = body.slice(restStart);
+      // role ends at the first period that actually ends a sentence: followed by
+      // whitespace/end and not an abbreviation dot (a capital right before it,
+      // e.g. "U.S."). [A-Z] here is case-sensitive on purpose (no /i).
+      let end = -1;
+      for (let i = 2; i < rest.length && i <= 90; i++) {
+        if (rest[i] !== ".") continue;
+        const after = rest[i + 1];
+        if (after !== undefined && !/\s/.test(after)) continue;
+        if (/[A-Z]/.test(rest[i - 1])) continue;
+        end = i;
+        break;
+      }
+      if (end > 1) {
+        role = rest.slice(0, end).trim();
+        const consumed = body.slice(lead.index, restStart + end + 1);
+        body = body.replace(consumed, lead[0].startsWith("\n") ? "\n" : " ");
+      }
     }
 
     const format = [];
