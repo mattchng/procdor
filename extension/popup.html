@@ -79,14 +79,7 @@
     <input type="checkbox" id="pasteIntercept">
     <div>
       <div class="name">Catch &amp; condense big pastes</div>
-      <div class="desc">A large paste (40+ lines or 6k+ chars) is condensed first, then goes inline if it's now small enough or as a file if not. Plain text and Markdown are handled differently; code and data dumps are left alone.</div>
-    </div>
-  </label>
-  <label class="indent">
-    <input type="checkbox" id="pasteAttach">
-    <div>
-      <div class="name">Prefer a file attachment for large results</div>
-      <div class="desc">Send a still-sizable condensed paste to claude as a file so the composer stays clean. Off = inline whenever it fits. Very long text always goes as a file (inline would get truncated).</div>
+      <div class="desc">A large paste (40+ lines or 6k+ chars) is condensed and kept as inline text, so the model follows it as a prompt instead of attaching it as a file. Plain text and Markdown are handled differently; code and data dumps are left alone.</div>
     </div>
   </label>
   <footer>Applies on claude.ai. Look for the ⟪ Condense button near your composer.</footer>

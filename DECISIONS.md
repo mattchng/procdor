@@ -174,6 +174,18 @@ two corrections from the user:
 
 `SAFE_INLINE_MAX` (12k) is a guess — claude allowed 40k inline in testing but the user reports truncation on their ~40k prompt, so the real safe ceiling is lower and unknown; 12k is deliberately conservative.
 
+## the attachment path was wrong for prompts — back to inline (2026-09-09)
+
+shipping the `condensed-prompt.md` attachment surfaced two dealbreakers:
+1. **the model treats an attached file as a document, not instructions** — it replied "I read through the whole file, it's a 482-line system prompt..." instead of *following* it.
+2. **you can't review a file chip** before sending.
+
+so for a prompt the only right destination is **inline composer text**. reverted: removed `attachAsFile`, the `procdorPasteAttach` toggle, and the second popup checkbox. the paste handler now always force-inlines the condensed text (`execCommand insertText` after `preventDefault`), which also keeps it reviewable/editable in the composer. if the result is still ≥30k chars it flashes `"... inline, ~Nk chars — review before sending"`.
+
+`FORCE_INLINE_AT` = 15000: at/above this we always take the paste over even if we can't condense it, because claude's own auto-attach cutover (measured ~40k, but it varies) would otherwise turn it into a file. below 15k, if we can't shrink it ≥3% we stay out and let claude's native inline paste happen.
+
+**caveat learned:** on this user's actual prompt, surface trims achieve only ~0.2% — it's already extremely terse (no filler, no hedging, deliberate structure). the condenser's value is for *verbose* prompts; for an already-tight 40k prompt the most Procdor can do is keep it inline so the model obeys it. genuinely reducing such a prompt would need semantic compression (an LLM call), which the project ruled out.
+
 ## current status
 
 engine is single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op, fragment-stripping, non-win, large-paste-intercept, and condense-to-attachment are all in. the individual mechanisms are verified against live claude.ai (capture-phase paste block; File→input→attachment); the **end-to-end flow through the reloaded extension still needs a live confirm** (content-script changes don't hot-reload, and browser automation can't reload an unpacked extension). rules keep getting refined as we go rather than being "finished" first.

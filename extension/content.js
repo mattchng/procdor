@@ -3,20 +3,13 @@
 
   let ruleState = defaultRuleState();
   let interceptLargePastes = true;
-  let keepBigPasteAsFile = true;
 
-  chrome.storage.sync.get(
-    ["procdorRules", "procdorPasteIntercept", "procdorPasteAttach"],
-    (data) => {
-      if (data.procdorRules) ruleState = Object.assign(ruleState, data.procdorRules);
-      if (typeof data.procdorPasteIntercept === "boolean") {
-        interceptLargePastes = data.procdorPasteIntercept;
-      }
-      if (typeof data.procdorPasteAttach === "boolean") {
-        keepBigPasteAsFile = data.procdorPasteAttach;
-      }
+  chrome.storage.sync.get(["procdorRules", "procdorPasteIntercept"], (data) => {
+    if (data.procdorRules) ruleState = Object.assign(ruleState, data.procdorRules);
+    if (typeof data.procdorPasteIntercept === "boolean") {
+      interceptLargePastes = data.procdorPasteIntercept;
     }
-  );
+  });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "sync") return;
     if (changes.procdorRules) {
@@ -25,10 +18,6 @@
     if (changes.procdorPasteIntercept &&
         typeof changes.procdorPasteIntercept.newValue === "boolean") {
       interceptLargePastes = changes.procdorPasteIntercept.newValue;
-    }
-    if (changes.procdorPasteAttach &&
-        typeof changes.procdorPasteAttach.newValue === "boolean") {
-      keepBigPasteAsFile = changes.procdorPasteAttach.newValue;
     }
   });
 
@@ -208,39 +197,23 @@
   }
 
   // ---- large-paste interception ----
-  // claude.ai diverts a big paste into a file attachment on purpose: past a
-  // certain size, inline composer text gets truncated, and the attachment is its
-  // workaround. So the goal here isn't to force big text inline — it's to condense
-  // it *first*, then put it wherever it belongs: inline if the condensed result is
-  // safely small, otherwise as an attachment (which we build ourselves so it's the
-  // condensed text, not the original).
+  // Past ~40k characters claude.ai diverts a paste into a file attachment. For a
+  // *prompt* that's the wrong place: the model treats an attached file as a
+  // document to analyze ("I read through the file..."), not as instructions to
+  // follow, and you can't review it. So condense the paste and put the result in
+  // the composer as ordinary text — where the model obeys it and you can read and
+  // edit it before sending.
   const PASTE_MIN_CHARS = 6000;
   const PASTE_MIN_LINES = 40;
-  // Below this many characters we're confident claude.ai won't truncate inline
-  // text; above it, the condensed result has to go in as an attachment.
-  const SAFE_INLINE_MAX = 12000;
+  // At/above this we always take the paste over and force it inline, even if we
+  // can't condense it — claude.ai's own paste-to-attachment cutover was measured
+  // around 40k but varies, so this sits well below it as a safety margin.
+  const FORCE_INLINE_AT = 15000;
+  // A still-sizable inline prompt is worth a "go read it" nudge.
+  const REVIEW_WARN_AT = 30000;
 
   function isBigText(t) {
     return t.length >= PASTE_MIN_CHARS || t.split("\n").length >= PASTE_MIN_LINES;
-  }
-
-  // Feed text into claude.ai's own attachment flow. Synthetic ClipboardEvents
-  // don't trigger its paste-to-attachment path, but assigning a File to the
-  // hidden <input type=file> and firing "change" does. Returns false if the input
-  // isn't present.
-  function attachAsFile(text, name) {
-    const input = document.querySelector('input[type="file"]');
-    if (!input) return false;
-    try {
-      const dt = new DataTransfer();
-      dt.items.add(new File([text], name, { type: "text/plain" }));
-      input.files = dt.files;
-      input.dispatchEvent(new Event("change", { bubbles: true }));
-      return true;
-    } catch (err) {
-      console.error("[Procdor] attach-as-file failed:", err);
-      return false;
-    }
   }
 
   window.addEventListener("paste", (e) => {
@@ -271,46 +244,24 @@
       console.error("[Procdor] paste compress failed:", err);
       return;
     }
-    if (!output || !output.trim()) return;
+    if (!output || !output.trim()) output = text;
 
     const gain = 1 - output.length / text.length;
-    // if we can't shrink it much AND it would fit inline anyway, stay out of it
-    if (gain < 0.05 && text.length <= SAFE_INLINE_MAX) return;
+    // small enough that claude keeps it inline anyway, and we can't help → stay out
+    if (gain < 0.03 && text.length < FORCE_INLINE_AT) return;
 
     e.preventDefault();
     e.stopImmediatePropagation();
+    composer.focus();
+    document.execCommand("insertText", false, output);
 
     const before = approxTokenCount(text);
     const after = approxTokenCount(output);
     const label = kind === "markdown" ? "markdown" : "text";
-
-    const goInline = () => {
-      composer.focus();
-      document.execCommand("insertText", false, output);
-      flash(`pasted ${label} · ${before}→${after}t`);
-    };
-
-    // small enough to be safe inline, and not forced to a file → inline
-    const wantFile = output.length > SAFE_INLINE_MAX ||
-                     (keepBigPasteAsFile && isBigText(output));
-    if (!wantFile) {
-      goInline();
-      return;
-    }
-
-    const fname = kind === "markdown" ? "condensed-prompt.md" : "condensed-prompt.txt";
-    if (attachAsFile(output, fname)) {
-      flash(`condensed ${label} → file · ${before}→${after}t`);
-      setTimeout(() => {
-        if (document.querySelector(ATTACHMENT_SELECTOR)) return;
-        // attachment didn't land — inline is only safe if it's small enough
-        if (output.length <= SAFE_INLINE_MAX) goInline();
-        else flash("couldn't attach — paste again");
-      }, 600);
-    } else if (output.length <= SAFE_INLINE_MAX) {
-      goInline();
+    if (output.length >= REVIEW_WARN_AT) {
+      flash(`${label} inline, ~${Math.round(output.length / 1000)}k chars — review before sending`);
     } else {
-      flash("couldn't attach — paste again");
+      flash(`pasted ${label} · ${before}→${after}t`);
     }
   }, true);
 
