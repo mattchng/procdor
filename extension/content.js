@@ -80,17 +80,57 @@
     }
   }
 
+  // Classify a paste so we can (a) skip things we'd only damage and (b) pick a
+  // rule profile that fits.
+  //   "code"     — source / markup: leave it entirely alone
+  //   "data"     — JSON, CSV/TSV: leave it entirely alone
+  //   "markdown" — formatted prose: surface trims only, keep the structure
+  //   "prose"    — plain text: full rules if short, surface trims if long
+  function classifyText(text) {
+    const lines = text.split("\n");
+    const sample = lines.slice(0, 300);
+    const n = sample.length || 1;
+
+    const trimmed = text.trim();
+    if ((trimmed[0] === "{" || trimmed[0] === "[") && trimmed.length > 40) {
+      try { JSON.parse(trimmed); return "data"; } catch (_) { /* not JSON */ }
+    }
+    const delimConsistent = (re) => {
+      if (n < 5) return false; // need several rows to call it a table
+      const counts = sample.map((l) => (l.match(re) || []).length);
+      return counts[0] >= 2 &&
+             counts.filter((c) => c === counts[0]).length / n > 0.85;
+    };
+    if (delimConsistent(/,/g) || delimConsistent(/\t/g)) return "data";
+
+    let codey = 0;
+    for (const l of sample) {
+      if (/^\s{2,}\S/.test(l) || /[;{}]\s*$/.test(l) ||
+          /^\s*(def |class |function |import |from |const |let |var |public |private |#include|package |return |<\/?[a-zA-Z])/.test(l)) {
+        codey++;
+      }
+    }
+    if (codey / n > 0.3) return "code";
+
+    let md = 0;
+    if (/^#{1,6}\s/m.test(text)) md++;
+    if (/^\s*(?:[-*+]|\d+\.)\s+\S/m.test(text)) md++;
+    if (/^\s*>\s/m.test(text)) md++;
+    if (/^\s*\|.+\|\s*$/m.test(text)) md++;
+    if (/\*\*[^*\n]+\*\*/.test(text) || /`[^`\n]+`/.test(text)) md++;
+    if (/\[[^\]\n]+\]\([^)\n]+\)/.test(text)) md++;
+    if (md >= 2) return "markdown";
+
+    return "prose";
+  }
+
   // The structural (Role/Context/Task/Constraints bucketing) and duplicate-collapse
-  // rules assume a short conversational prompt. On a long or markdown-structured
-  // document they reorder sentences across sections and shred the formatting, so
-  // for that kind of input stick to the surface trims.
-  function rulesFor(text) {
-    const structured =
-      /^#{1,6}\s/m.test(text) ||       // markdown headings
-      /^\s*\|.+\|\s*$/m.test(text) ||  // table rows
-      /^\s*>\s/m.test(text) ||         // blockquotes
-      text.split("\n").length > 60;
-    if (text.length > 6000 || structured) {
+  // rules assume a short conversational prompt. On markdown or on any long document
+  // they reorder sentences across sections and shred the formatting.
+  function rulesFor(text, kind) {
+    kind = kind || classifyText(text);
+    if (kind === "markdown" || kind === "code" ||
+        text.length > 6000 || text.split("\n").length > 60) {
       return Object.assign({}, ruleState, { structural: false, redundant: false });
     }
     return ruleState;
@@ -168,38 +208,26 @@
   }
 
   // ---- large-paste interception ----
-  // A big enough paste gets diverted by claude.ai into a "PASTED" file attachment,
-  // which the Condense button then can't read. The exact cutover isn't a fixed
-  // number (and shifts), so rather than shadow it we catch any clearly-large prose
-  // paste in the capture phase (before the app's own handler), condense it, and
-  // drop the result straight into the composer as ordinary text.
+  // claude.ai diverts a big paste into a file attachment on purpose: past a
+  // certain size, inline composer text gets truncated, and the attachment is its
+  // workaround. So the goal here isn't to force big text inline — it's to condense
+  // it *first*, then put it wherever it belongs: inline if the condensed result is
+  // safely small, otherwise as an attachment (which we build ourselves so it's the
+  // condensed text, not the original).
   const PASTE_MIN_CHARS = 6000;
   const PASTE_MIN_LINES = 40;
-
-  // A pasted source file / data dump would only get mangled by the prose rules and
-  // isn't what this is for — leave those to claude.ai's normal handling.
-  function looksLikeCode(text) {
-    const lines = text.split("\n", 200);
-    if (lines.length < 5) return false;
-    let codey = 0;
-    for (const l of lines) {
-      if (/^\s{2,}\S/.test(l) ||
-          /[;{}]\s*$/.test(l) ||
-          /^\s*(def |class |function |import |from |const |let |var |public |private |#include|package |return |<\/?[a-zA-Z])/.test(l)) {
-        codey++;
-      }
-    }
-    return codey / lines.length > 0.3;
-  }
+  // Below this many characters we're confident claude.ai won't truncate inline
+  // text; above it, the condensed result has to go in as an attachment.
+  const SAFE_INLINE_MAX = 12000;
 
   function isBigText(t) {
     return t.length >= PASTE_MIN_CHARS || t.split("\n").length >= PASTE_MIN_LINES;
   }
 
-  // Drop text into claude.ai's own attachment flow as a .txt file. Synthetic
-  // ClipboardEvents don't trigger its paste-to-attachment path, but assigning a
-  // File to the hidden <input type=file> and firing "change" does. Returns false
-  // if the input isn't there so the caller can fall back to inline.
+  // Feed text into claude.ai's own attachment flow. Synthetic ClipboardEvents
+  // don't trigger its paste-to-attachment path, but assigning a File to the
+  // hidden <input type=file> and firing "change" does. Returns false if the input
+  // isn't present.
   function attachAsFile(text, name) {
     const input = document.querySelector('input[type="file"]');
     if (!input) return false;
@@ -231,44 +259,58 @@
     if (!cd || (cd.files && cd.files.length)) return; // real file paste — leave it
 
     const text = cd.getData("text/plain");
-    if (!text) return;
-    if (!isBigText(text)) return;    // normal pastes: hands off
-    if (looksLikeCode(text)) return;
+    if (!text || !isBigText(text)) return; // normal pastes: hands off
+
+    const kind = classifyText(text);
+    if (kind === "code" || kind === "data") return; // don't touch — claude handles it
 
     let output;
     try {
-      output = compress(text, rulesFor(text)).output;
+      output = compress(text, rulesFor(text, kind)).output;
     } catch (err) {
       console.error("[Procdor] paste compress failed:", err);
       return;
     }
-    // only take over the paste if condensing meaningfully shrinks it (>=5%);
-    // otherwise leave it for claude.ai to handle however it normally would
-    if (!output || !output.trim() || output.length > text.length * 0.95) return;
+    if (!output || !output.trim()) return;
+
+    const gain = 1 - output.length / text.length;
+    // if we can't shrink it much AND it would fit inline anyway, stay out of it
+    if (gain < 0.05 && text.length <= SAFE_INLINE_MAX) return;
 
     e.preventDefault();
     e.stopImmediatePropagation();
 
     const before = approxTokenCount(text);
     const after = approxTokenCount(output);
+    const label = kind === "markdown" ? "markdown" : "text";
 
-    const insertInline = () => {
+    const goInline = () => {
       composer.focus();
       document.execCommand("insertText", false, output);
-      flash(`pasted · ${before}→${after}t`);
+      flash(`pasted ${label} · ${before}→${after}t`);
     };
 
-    // still large after condensing → hand it to claude as a .txt attachment so the
-    // composer stays clean; otherwise just drop the (now short) text inline
-    if (keepBigPasteAsFile && isBigText(output) &&
-        attachAsFile(output, "condensed-prompt.txt")) {
-      flash(`condensed → .txt · ${before}→${after}t`);
-      // if the attachment didn't actually land, don't lose the paste
+    // small enough to be safe inline, and not forced to a file → inline
+    const wantFile = output.length > SAFE_INLINE_MAX ||
+                     (keepBigPasteAsFile && isBigText(output));
+    if (!wantFile) {
+      goInline();
+      return;
+    }
+
+    const fname = kind === "markdown" ? "condensed-prompt.md" : "condensed-prompt.txt";
+    if (attachAsFile(output, fname)) {
+      flash(`condensed ${label} → file · ${before}→${after}t`);
       setTimeout(() => {
-        if (!document.querySelector(ATTACHMENT_SELECTOR)) insertInline();
-      }, 500);
+        if (document.querySelector(ATTACHMENT_SELECTOR)) return;
+        // attachment didn't land — inline is only safe if it's small enough
+        if (output.length <= SAFE_INLINE_MAX) goInline();
+        else flash("couldn't attach — paste again");
+      }, 600);
+    } else if (output.length <= SAFE_INLINE_MAX) {
+      goInline();
     } else {
-      insertInline();
+      flash("couldn't attach — paste again");
     }
   }, true);
 

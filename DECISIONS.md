@@ -164,6 +164,16 @@ user pasted their actual venture-analyst report system prompt (~40k chars, heavy
 
 also: `collapseWhitespace` was flattening all leading indentation (`/^[ \t]+/gm`), which breaks markdown nesting and the indented RIGHT/WRONG pairs — rewritten to be line-aware and preserve each line's leading indent while still tidying the rest. and the paste path now requires a **≥5% size reduction** before taking over the paste, so it leaves an already-tight structured doc alone rather than clobbering it to save 3 tokens.
 
+## text-type classification + the attachment is claude's anti-truncation feature (2026-09-09)
+
+two corrections from the user:
+
+1. **the "PASTED" attachment is claude.ai's own workaround for very long pastes that would otherwise get truncated inline.** so forcing big text inline (the earlier instinct) re-introduces the truncation. the paste handler now: condense first, then place by size — `output.length <= SAFE_INLINE_MAX` (12k chars) → inline; larger → **must** be an attachment (toggle ignored at that size), built by us via `attachAsFile` so it carries the *condensed* text. if `attachAsFile` can't land it and the text is too big to inline safely, we flash "couldn't attach — paste again" rather than silently truncating.
+
+2. **detect the text type.** new `classifyText(text)` → `code` / `data` (JSON or consistent CSV/TSV over 5+ rows) / `markdown` (2+ distinct md constructs: headings, lists, blockquotes, tables, bold/code spans, links) / `prose`. paste handler skips `code` and `data` entirely (claude's native handling is right for those). `rulesFor(text, kind)` runs surface-trims-only for `markdown` and `code` and for anything long, full rules only for short plain prose. badge and attachment filename reflect the kind (`condensed-prompt.md` vs `.txt`, `pasted markdown` vs `pasted text`).
+
+`SAFE_INLINE_MAX` (12k) is a guess — claude allowed 40k inline in testing but the user reports truncation on their ~40k prompt, so the real safe ceiling is lower and unknown; 12k is deliberately conservative.
+
 ## current status
 
 engine is single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op, fragment-stripping, non-win, large-paste-intercept, and condense-to-attachment are all in. the individual mechanisms are verified against live claude.ai (capture-phase paste block; File→input→attachment); the **end-to-end flow through the reloaded extension still needs a live confirm** (content-script changes don't hot-reload, and browser automation can't reload an unpacked extension). rules keep getting refined as we go rather than being "finished" first.
