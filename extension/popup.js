@@ -3,11 +3,21 @@
   const container = document.getElementById("rules");
 
   const pasteToggle = document.getElementById("pasteIntercept");
-  chrome.storage.sync.get("procdorPasteIntercept", (d) => {
-    pasteToggle.checked = d.procdorPasteIntercept !== false; // default on
-  });
+  const attachToggle = document.getElementById("pasteAttach");
+  chrome.storage.sync.get(
+    ["procdorPasteIntercept", "procdorPasteAttach"],
+    (d) => {
+      pasteToggle.checked = d.procdorPasteIntercept !== false; // default on
+      attachToggle.checked = d.procdorPasteAttach !== false;   // default on
+      attachToggle.disabled = !pasteToggle.checked;
+    }
+  );
   pasteToggle.addEventListener("change", () => {
     chrome.storage.sync.set({ procdorPasteIntercept: pasteToggle.checked });
+    attachToggle.disabled = !pasteToggle.checked;
+  });
+  attachToggle.addEventListener("change", () => {
+    chrome.storage.sync.set({ procdorPasteAttach: attachToggle.checked });
   });
 
   chrome.storage.sync.get("procdorRules", (data) => {

@@ -49,6 +49,7 @@
     cursor: pointer;
   }
   label:last-of-type { border-bottom: none; }
+  label.indent { padding-left: 1.1rem; }
   input {
     accent-color: var(--accent);
     margin-top: 0.2rem;
@@ -78,7 +79,14 @@
     <input type="checkbox" id="pasteIntercept">
     <div>
       <div class="name">Catch &amp; condense big pastes</div>
-      <div class="desc">claude.ai turns a large paste into an attachment the Condense button can't reach. This condenses it (roughly 40+ lines or 6k+ chars) and drops it in inline instead. Code and data dumps are left alone.</div>
+      <div class="desc">claude.ai turns a large paste into an attachment the Condense button can't reach. This condenses it first (roughly 40+ lines or 6k+ chars). Code and data dumps are left alone.</div>
+    </div>
+  </label>
+  <label class="indent">
+    <input type="checkbox" id="pasteAttach">
+    <div>
+      <div class="name">Keep still-large results as a .txt attachment</div>
+      <div class="desc">If the condensed text is still big, hand it to claude as a file so the composer stays clean. Off = always inline.</div>
     </div>
   </label>
   <footer>Applies on claude.ai. Look for the ⟪ Condense button near your composer.</footer>

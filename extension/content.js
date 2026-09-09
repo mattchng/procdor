@@ -3,13 +3,20 @@
 
   let ruleState = defaultRuleState();
   let interceptLargePastes = true;
+  let keepBigPasteAsFile = true;
 
-  chrome.storage.sync.get(["procdorRules", "procdorPasteIntercept"], (data) => {
-    if (data.procdorRules) ruleState = Object.assign(ruleState, data.procdorRules);
-    if (typeof data.procdorPasteIntercept === "boolean") {
-      interceptLargePastes = data.procdorPasteIntercept;
+  chrome.storage.sync.get(
+    ["procdorRules", "procdorPasteIntercept", "procdorPasteAttach"],
+    (data) => {
+      if (data.procdorRules) ruleState = Object.assign(ruleState, data.procdorRules);
+      if (typeof data.procdorPasteIntercept === "boolean") {
+        interceptLargePastes = data.procdorPasteIntercept;
+      }
+      if (typeof data.procdorPasteAttach === "boolean") {
+        keepBigPasteAsFile = data.procdorPasteAttach;
+      }
     }
-  });
+  );
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "sync") return;
     if (changes.procdorRules) {
@@ -18,6 +25,10 @@
     if (changes.procdorPasteIntercept &&
         typeof changes.procdorPasteIntercept.newValue === "boolean") {
       interceptLargePastes = changes.procdorPasteIntercept.newValue;
+    }
+    if (changes.procdorPasteAttach &&
+        typeof changes.procdorPasteAttach.newValue === "boolean") {
+      keepBigPasteAsFile = changes.procdorPasteAttach.newValue;
     }
   });
 
@@ -165,20 +176,47 @@
     return codey / lines.length > 0.3;
   }
 
+  function isBigText(t) {
+    return t.length >= PASTE_MIN_CHARS || t.split("\n").length >= PASTE_MIN_LINES;
+  }
+
+  // Drop text into claude.ai's own attachment flow as a .txt file. Synthetic
+  // ClipboardEvents don't trigger its paste-to-attachment path, but assigning a
+  // File to the hidden <input type=file> and firing "change" does. Returns false
+  // if the input isn't there so the caller can fall back to inline.
+  function attachAsFile(text, name) {
+    const input = document.querySelector('input[type="file"]');
+    if (!input) return false;
+    try {
+      const dt = new DataTransfer();
+      dt.items.add(new File([text], name, { type: "text/plain" }));
+      input.files = dt.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    } catch (err) {
+      console.error("[Procdor] attach-as-file failed:", err);
+      return false;
+    }
+  }
+
   window.addEventListener("paste", (e) => {
     if (!interceptLargePastes) return;
     const composer = findComposer();
     if (!composer) return;
-    if (e.target !== composer && !composer.contains(e.target)) return;
+    // claude.ai routes an unfocused paste to the composer itself, so accept a
+    // paste aimed at the composer OR at nothing in particular — only bail if it
+    // landed in some other real input (e.g. the sidebar search box)
+    const tgt = e.target;
+    const otherField = tgt && tgt.closest &&
+      tgt.closest('input, textarea, [contenteditable="true"]');
+    if (otherField && otherField !== composer && !composer.contains(otherField)) return;
 
     const cd = e.clipboardData;
     if (!cd || (cd.files && cd.files.length)) return; // real file paste — leave it
 
     const text = cd.getData("text/plain");
     if (!text) return;
-    const isBig = text.length >= PASTE_MIN_CHARS ||
-                  text.split("\n").length >= PASTE_MIN_LINES;
-    if (!isBig) return;           // normal pastes: hands off
+    if (!isBigText(text)) return;    // normal pastes: hands off
     if (looksLikeCode(text)) return;
 
     let output;
@@ -192,10 +230,28 @@
 
     e.preventDefault();
     e.stopImmediatePropagation();
-    composer.focus();
-    document.execCommand("insertText", false, output);
 
-    flash(`pasted · ${approxTokenCount(text)}→${approxTokenCount(output)}t`);
+    const before = approxTokenCount(text);
+    const after = approxTokenCount(output);
+
+    const insertInline = () => {
+      composer.focus();
+      document.execCommand("insertText", false, output);
+      flash(`pasted · ${before}→${after}t`);
+    };
+
+    // still large after condensing → hand it to claude as a .txt attachment so the
+    // composer stays clean; otherwise just drop the (now short) text inline
+    if (keepBigPasteAsFile && isBigText(output) &&
+        attachAsFile(output, "condensed-prompt.txt")) {
+      flash(`condensed → .txt · ${before}→${after}t`);
+      // if the attachment didn't actually land, don't lose the paste
+      setTimeout(() => {
+        if (!document.querySelector(ATTACHMENT_SELECTOR)) insertInline();
+      }, 500);
+    } else {
+      insertInline();
+    }
   }, true);
 
   ensureButton();

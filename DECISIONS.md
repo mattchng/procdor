@@ -143,6 +143,17 @@ measured claude.ai's behaviour live (real cmd-v pastes, browser automation):
 
 **not yet verified live** (needs an unpacked-extension reload, which can't be done from browser automation): the capture-phase listener registered from the content script's *isolated world* — as opposed to the page world, where it's proven — beating claude.ai's handler. Very likely fine (window capture is the earliest hook) but if big pastes still attach after reload, that's the reason and the fix is a `world: "MAIN"` shim.
 
+### condense → back to an attachment (2026-09-09)
+
+follow-up ask: instead of forcing a big condensed paste inline, condense it and keep it as an attachment so the composer stays clean.
+
+what the live testing showed:
+- a **synthetic `ClipboardEvent`** (re-dispatching a paste with condensed text) does **not** trigger claude.ai's paste-to-attachment path — it just goes inline. so we can't "re-paste" the condensed text.
+- but assigning a `File` to claude's hidden `<input type=file>` and firing `change` **does** create an attachment — it shows as a normal `condensed-prompt.txt` / `TXT` chip (not the "PASTED" styling, but functionally the same document).
+- claude.ai routes an **unfocused** paste to the composer via a document-level handler, so the old `e.target === composer` gate was too strict — loosened to "bail only if the paste landed in some *other* real input".
+
+shipped in the paste handler: after condensing, if the result is still big (same `isBigText` check) and the **"Keep still-large results as a .txt attachment"** toggle is on (`procdorPasteAttach`, default on, nested under the master toggle), call `attachAsFile()`. if it doesn't land within 500ms, fall back to inserting inline so a paste is never lost. a result that condensed down small just goes inline regardless.
+
 ## current status
 
-engine is single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op, fragment-stripping, non-win, and large-paste fixes are in; verified via node harness + live DOM probing, **but the reloaded extension hasn't been re-confirmed end-to-end on claude.ai yet** (content-script changes don't hot-reload). rules keep getting refined as we go rather than being "finished" first.
+engine is single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op, fragment-stripping, non-win, large-paste-intercept, and condense-to-attachment are all in. the individual mechanisms are verified against live claude.ai (capture-phase paste block; File→input→attachment); the **end-to-end flow through the reloaded extension still needs a live confirm** (content-script changes don't hot-reload, and browser automation can't reload an unpacked extension). rules keep getting refined as we go rather than being "finished" first.
