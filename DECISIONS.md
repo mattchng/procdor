@@ -131,11 +131,13 @@ measured claude.ai's behaviour live (real cmd-v pastes, browser automation):
 - a **capture-phase `paste` listener on `window`** fires before claude.ai's own handler; `preventDefault()` + `stopImmediatePropagation()` fully suppresses the attachment, and our own `execCommand("insertText", …)` then populates the composer normally. (verified by injecting the listener into the live page.)
 
 **what shipped (`content.js`):**
-1. capture-phase `paste` listener. only acts when the pasted text is ≥ `PASTE_MIN_CHARS` (40000 — just under claude's threshold); everything smaller is left completely alone.
-2. on a big paste: run it through `compress()`, then `execCommand insertText` the result (or the original, if compression wasn't a size win) straight into the composer. either way the text lands **inline**, not as an attachment, so it's visible/editable and the Condense button can still work on it.
-3. `looksLikeCode()` guard — if >30% of the first 200 lines look like source/markup (indentation, trailing `;{}`, `def`/`function`/`import`/tag starts), skip the prose rules and just force it inline untouched, so a pasted file doesn't get mangled.
-4. gated by a popup toggle **"Catch & condense big pastes"** (`chrome.storage.sync` key `procdorPasteIntercept`, default on) so it can be turned off if someone wants claude's normal attachment behaviour.
-5. the badge (`flash`) was lifted to module scope so the paste handler can report `pasted · 12800→9t` / `pasted inline · 12800t`.
+1. capture-phase `paste` listener.
+2. on a qualifying paste: run it through `compress()` and `execCommand insertText` the result into the composer — **inline**, not an attachment, so it's visible/editable and the Condense button can still work on it.
+3. `looksLikeCode()` guard — if >30% of the first 200 lines look like source/markup (indentation, trailing `;{}`, `def`/`function`/`import`/tag starts), don't touch it; claude.ai handles it normally (an attachment is the right call for a pasted file).
+4. gated by a popup toggle **"Catch & condense big pastes"** (`chrome.storage.sync` key `procdorPasteIntercept`, default on).
+5. the badge (`flash`) was lifted to module scope so the paste handler can report `pasted · 12800→900t`.
+
+**threshold (revised same day):** first cut was `chars ≥ 40000` to shadow claude's cutover. but claude attaches at well under 40k in real use (it's not a fixed char count — the user originally hit it at ">500 lines"), so those pastes landed as attachments and never got condensed. dropped to **`chars ≥ 6000` OR `lines ≥ 40`**, whichever hits first — low enough to catch anything that could plausibly become an attachment, and normal short pastes (a paragraph, a snippet) are still untouched. a paste that qualifies but doesn't actually shrink is left alone (`output.length >= text.length` → no-op), as is a code/data dump. the toggle is the escape hatch if 40 lines feels too eager.
 
 **also (#3, the confusion moment):** clicking Condense with an empty composer but an attachment present now flashes `"text is in an attachment — can't read it"` instead of `"nothing typed yet"`.
 

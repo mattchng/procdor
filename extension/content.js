@@ -141,15 +141,16 @@
   }
 
   // ---- large-paste interception ----
-  // Past ~40k characters claude.ai diverts a paste into a file attachment, which
-  // the Condense button then can't read. Catch the paste in the capture phase
-  // (before the app's own handler), condense it, and drop the result straight
-  // into the composer as ordinary text so it stays visible and editable.
-  // ~40000 shadows claude.ai's threshold as measured; adjust if that shifts.
-  const PASTE_MIN_CHARS = 40000;
+  // A big enough paste gets diverted by claude.ai into a "PASTED" file attachment,
+  // which the Condense button then can't read. The exact cutover isn't a fixed
+  // number (and shifts), so rather than shadow it we catch any clearly-large prose
+  // paste in the capture phase (before the app's own handler), condense it, and
+  // drop the result straight into the composer as ordinary text.
+  const PASTE_MIN_CHARS = 6000;
+  const PASTE_MIN_LINES = 40;
 
-  // A pasted source file / data dump shouldn't be run through the prose rules —
-  // force it inline (so it's still reachable) but leave the text untouched.
+  // A pasted source file / data dump would only get mangled by the prose rules and
+  // isn't what this is for — leave those to claude.ai's normal handling.
   function looksLikeCode(text) {
     const lines = text.split("\n", 200);
     if (lines.length < 5) return false;
@@ -174,26 +175,27 @@
     if (!cd || (cd.files && cd.files.length)) return; // real file paste — leave it
 
     const text = cd.getData("text/plain");
-    if (!text || text.length < PASTE_MIN_CHARS) return; // normal pastes: hands off
+    if (!text) return;
+    const isBig = text.length >= PASTE_MIN_CHARS ||
+                  text.split("\n").length >= PASTE_MIN_LINES;
+    if (!isBig) return;           // normal pastes: hands off
+    if (looksLikeCode(text)) return;
 
-    let output = text;
-    if (!looksLikeCode(text)) {
-      try {
-        const r = compress(text, ruleState);
-        if (r.output && r.output.trim() && r.output.length < text.length) output = r.output;
-      } catch (err) {
-        console.error("[Procdor] paste compress failed:", err);
-      }
+    let output;
+    try {
+      output = compress(text, ruleState).output;
+    } catch (err) {
+      console.error("[Procdor] paste compress failed:", err);
+      return;
     }
+    if (!output || !output.trim() || output.length >= text.length) return; // nothing gained
 
     e.preventDefault();
     e.stopImmediatePropagation();
     composer.focus();
     document.execCommand("insertText", false, output);
 
-    const before = approxTokenCount(text);
-    const after = approxTokenCount(output);
-    flash(output === text ? `pasted inline · ${before}t` : `pasted · ${before}→${after}t`);
+    flash(`pasted · ${approxTokenCount(text)}→${approxTokenCount(output)}t`);
   }, true);
 
   ensureButton();
