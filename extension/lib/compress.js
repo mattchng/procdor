@@ -168,6 +168,53 @@
     return text.replace(LEADING_INTERJECTION, "");
   }
 
+  // Whole sentences that are pure politeness / meta-commentary carrying no task
+  // content. Matched against the trimmed sentence; a match drops the sentence
+  // entirely rather than word-trimming it (which strands fragments like
+  // "Possibly help me out here." or "In advance, I appreciate it."). The
+  // trailing [^?]* guard keeps a sentence that actually asks something
+  // ("I was wondering if you could check whether this is right?") intact.
+  const PLEASANTRY_SENTENCE = [
+    /^thank(?:s| you)\b[^?]*$/i,
+    /^(?:many thanks|much appreciated|thanks again|cheers)\b[^?]*$/i,
+    /^i (?:really |truly |greatly |sincerely )?appreciate (?:it|this|your \w+)\b[^?]*$/i,
+    /^i(?:'d| would)? (?:really |truly )?appreciate it if you (?:could|can|would)\b[^?]*$/i,
+    /^i(?:'m| am) (?:really |very )?(?:hoping|grateful|thankful)\b[^?]*$/i,
+    /^i hope (?:this|that|you|it|these|the above)\b[^?]*$/i,
+    // leading "I" is often dropped in casual phrasing ("Was wondering if you could…")
+    /^(?:i )?was wondering if you (?:could|can|would)\b[^?]*$/i,
+    /^(?:i(?:'d| would) (?:love|like) it if) you (?:could|can|would)\b[^?]*$/i,
+    // "…in advance, I appreciate it" — with or without the "thanks so much" head
+    // that hedge-stripping may already have eaten. Requires the appreciation
+    // tail so "In advance of the meeting, prepare X." is left alone.
+    /^(?:thanks? )?(?:so much |much )?in advance[\s,.]*(?:i (?:really |truly )?appreciate|thank|for (?:your|the) (?:help|time))\b[^?]*$/i,
+    /^any (?:help|assistance|input|guidance|advice|feedback|thoughts) [^?]*\b(?:appreciated|welcome|helpful)\b[^?]*$/i,
+    /^no (?:rush|worries|hurry|pressure)\b[^?]*$/i
+  ];
+
+  function dropPleasantries(text) {
+    const chunks = splitChunks(text);
+    let dropped = false;
+    for (let i = 0; i < chunks.length; i += 2) {
+      const seg = chunks[i];
+      if (!seg || !seg.trim()) continue;
+      // keep anything that carries a constraint — that's real content, and it's
+      // pulled out into its own field later
+      if (CONSTRAINT_TRIGGER.test(seg)) continue;
+      if (PLEASANTRY_SENTENCE.some((re) => re.test(seg.trim()))) {
+        chunks[i] = "";
+        // drop the trailing separator too, so the next sentence starts clean
+        // (a stray leading space would break the ^-anchored imperative match)
+        if (chunks[i + 1] !== undefined) chunks[i + 1] = "";
+        dropped = true;
+      }
+    }
+    if (!dropped) return text;
+    const result = chunks.join("");
+    // never let politeness-stripping empty the whole prompt
+    return result.trim() ? result : text;
+  }
+
   const ROLE_PATTERN = /(?:^|[.\n]\s*)(?:you are|act as|please act as|imagine you'?re|imagine you are)\s+(?:an?\s+)?([^.\n]{2,80})[.\n]/i;
 
   const FORMAT_PATTERNS = [
@@ -223,7 +270,7 @@
       out = capitalizeFirst(out);
       out = out.replace(/\?\s*$/, ".");
     }
-    return out;
+    return { text: out, converted };
   }
 
   function applyFiller(text) {
@@ -297,6 +344,7 @@
     let body = withTokens;
 
     if (opts.hedges) {
+      body = dropPleasantries(body);
       const chunks = splitChunks(body);
       for (let i = 0; i < chunks.length; i += 2) {
         if (chunks[i]) chunks[i] = stripLeadingInterjection(chunks[i]);
@@ -306,7 +354,14 @@
     if (opts.imperative) {
       const chunks = splitChunks(body);
       for (let i = 0; i < chunks.length; i += 2) {
-        if (chunks[i]) chunks[i] = applyImperative(chunks[i]);
+        if (!chunks[i]) continue;
+        const res = applyImperative(chunks[i]);
+        chunks[i] = res.text;
+        // the "?" ending an imperatived sentence lives in the *separator*
+        // chunk ("? "), not chunks[i] — rewrite it to "." here
+        if (res.converted && chunks[i + 1] && /^\?/.test(chunks[i + 1])) {
+          chunks[i + 1] = chunks[i + 1].replace(/^\?+/, ".");
+        }
       }
       body = chunks.join("");
     }
@@ -344,7 +399,7 @@
       const parts = [];
       if (role) parts.push("Role: " + role);
       if (context) parts.push("Context: " + context);
-      parts.push("Task: " + body);
+      if (body.trim()) parts.push("Task: " + body);
       if (constraints.length) parts.push("Constraints: " + constraints.join("; "));
       if (examples.length) parts.push("Examples:\n" + examples.map((e) => "- " + e).join("\n"));
       if (format) parts.push("Format: " + format);
@@ -354,6 +409,14 @@
     }
 
     output = restoreProtected(output, store);
+
+    // if the rules chewed the prompt down to nothing meaningful (e.g. the whole
+    // thing was a pleasantry), don't hand back punctuation-noise — keep the
+    // original, just whitespace-normalized
+    if (/\w/.test(text) && !/[A-Za-z0-9]/.test(output)) {
+      output = restoreProtected(collapseWhitespace(withTokens), store);
+    }
+
     return { output, protectedCount: store.length };
   }
 

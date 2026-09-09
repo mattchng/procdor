@@ -99,6 +99,28 @@ one thing worth flagging about `content.js`:
 
 **update:** loaded it unpacked and tested against the real claude.ai — the composer-detection fallback chain (aria-label / data-placeholder / bare contenteditable, filtered by visible size) worked on the first try, no selector fixes needed. button shows up, condensing works, popup rule toggles take effect.
 
+## the button "does nothing" — silent no-op + fragment stripping (2026-09-09)
+
+came back to it after a break: the condense button showed up on claude.ai but "wasn't doing anything." drove it live in the real composer — turned out it *was* working (verbose test prompt condensed 45→29, text landed in the tiptap/prosemirror composer fine, no selector rot). two real problems behind the "dead button" feeling:
+
+1. **silent no-op.** the click handler had four early `return`s (no composer, empty input, `output === original`, falsy output) with zero feedback. an already-lean prompt → click → nothing visible → reads exactly like a broken button. fix: every click now flashes the badge — `no input box found` / `nothing typed yet` / `already lean · Nt` / `error — see console` / `N→Mt`. also wrapped `compress()` in try/catch so an engine throw surfaces instead of dying silently.
+
+2. **hedge-stripping left sentence fragments.** `"I was wondering if you could possibly help me out here."` → `"Possibly help me out here."`; `"Thanks so much in advance, I really appreciate it."` → `"In advance, I appreciate it."`. root cause: the hedge regexes chop a leading verb-phrase but leave the rest of a now-pointless sentence, and `stripLeadingInterjection` eats just the first politeness token ("Thanks ") orphaning the rest so the full-sentence hedge pattern never matches. fix: added `dropPleasantries` — a pre-pass (gated by the `hedges` toggle, runs before interjection-strip and imperative) that matches a *whole* trimmed sentence against a list of pure-politeness patterns (thanks / I appreciate it / I hope this / I was wondering if you could help / any feedback welcome / no rush …) and drops the entire sentence. guards: skips any sentence containing a `CONSTRAINT_TRIGGER` (that's real content, extracted later), the patterns carry a trailing `[^?]*$` so a sentence that actually asks something survives, and if the pass would empty the whole prompt it's a no-op. also added a final guard in `compress()`: if the rules reduce the prompt to punctuation-noise with no alphanumerics, hand back the whitespace-normalized original instead.
+
+3. **imperative `?`→`.` never fired** when the "?" sat in the *separator* chunk (`"? "`) rather than at the end of the sentence chunk. `applyImperative` now returns `{ text, converted }` and the compress loop rewrites the following separator's leading `?` to `.` when a conversion happened.
+
+**known residual:** interjection-before-imperative still misses non-politeness connectives — `"Also, could you give an example?"` → `"Also, give an example?"` (the "?" stays). same class as the old "please, could you" bug but "also"/"then"/"additionally" aren't in the interjection list. also a trailing "?" on an *already*-imperative sentence isn't normalized to "." (`"Write a prime checker?"` stays). left as follow-ups.
+
+### follow-up: "36→36t" non-wins + more fragments (2026-09-09, same day)
+
+using it more: clicking condense sometimes replaced the text and flashed `36→36t` — i.e. a rule changed the wording (capitalization / word swap) without dropping any tokens, so it clobbered what was typed for no gain. fix in `content.js`: only rewrite when `after < before` — a same-or-longer result now falls through to the `already lean` badge and leaves the composer untouched.
+
+also two more pleasantry shapes slipped through: `"Was wondering if you could…"` (casual dropped-"I") and `"…in advance, I appreciate it"` (the "Thanks so much" head already eaten by hedge-stripping, leaving `"Much in advance, I appreciate it."`). added patterns for both. the in-advance pattern requires the appreciation tail (`in advance, I appreciate` / `in advance, thanks` / `in advance for your help`) so `"In advance of the meeting, prepare a summary."` is left alone. verified against false-positive cases (`"Much of the program logic depends on…"`, `"In advance of the meeting…"`, `"Was wondering if you could review this?"` — the last kept because it actually asks something).
+
+### engine de-duplication (finally did it)
+
+the fragment fix would have meant hand-porting regex changes across `index.html` and `extension/lib/compress.js` again — the exact maintenance cost flagged earlier. so `index.html` now loads the shared engine via `<script src="extension/lib/compress.js">` (+ `const { RULES, compress, approxTokenCount } = window.ProcdorCompress;`) instead of carrying an inline copy. one engine now. only wrinkle: the test bench must be opened from a path where `extension/lib/compress.js` resolves relative to `index.html` (i.e. the repo root) — fine for `file://` in chrome, which allows sibling/subdir script loads.
+
 ## current status
 
-test bench (`index.html`) and extension (`extension/`) both work end to end, confirmed against the real claude.ai. rules keep getting refined as we go rather than being "finished" first.
+engine is now single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op and fragment-stripping fixes verified via a node harness on ~10 cases; **still need to reload the unpacked extension + a claude.ai tab to re-confirm live** (content-script file changes don't hot-reload). rules keep getting refined as we go rather than being "finished" first.

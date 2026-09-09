@@ -66,22 +66,50 @@
     badge.id = "procdor-badge";
     button.appendChild(badge);
 
+    let hideTimer;
+    // every click gives visible feedback — a silent no-op is indistinguishable
+    // from a broken button
+    function flash(msg) {
+      badge.textContent = msg;
+      badge.classList.add("procdor-badge-show");
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(() => badge.classList.remove("procdor-badge-show"), 3000);
+    }
+
     button.addEventListener("click", () => {
       const composer = findComposer();
-      if (!composer) return;
+      if (!composer) {
+        flash("no input box found");
+        return;
+      }
 
       const original = getComposerText(composer);
-      if (!original.trim()) return;
+      if (!original.trim()) {
+        flash("nothing typed yet");
+        return;
+      }
 
-      const { output } = compress(original, ruleState);
-      if (!output || output === original) return;
+      let output;
+      try {
+        ({ output } = compress(original, ruleState));
+      } catch (err) {
+        console.error("[Procdor] compress failed:", err);
+        flash("error — see console");
+        return;
+      }
 
       const before = approxTokenCount(original);
       const after = approxTokenCount(output);
+
+      // only rewrite if it's an actual win — a same-or-longer "condense" that
+      // just reshuffles words isn't worth clobbering what the user typed
+      if (!output.trim() || output.trim() === original.trim() || after >= before) {
+        flash(before > 0 ? `already lean · ${before}t` : "already lean");
+        return;
+      }
+
       setComposerText(composer, output);
-      badge.textContent = before > 0 ? `${before}→${after}` : "";
-      badge.classList.add("procdor-badge-show");
-      setTimeout(() => badge.classList.remove("procdor-badge-show"), 2500);
+      flash(before > 0 ? `${before}→${after}t` : "condensed");
     });
 
     return button;
