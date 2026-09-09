@@ -39,6 +39,7 @@
     color: var(--accent-strong);
     margin: 0 0 0.7rem;
   }
+  h1.section-gap { margin-top: 1rem; }
   label {
     display: flex;
     align-items: flex-start;
@@ -72,6 +73,14 @@
 <body>
   <h1>Procdor — active rules</h1>
   <div id="rules"></div>
+  <h1 class="section-gap">Large pastes</h1>
+  <label>
+    <input type="checkbox" id="pasteIntercept">
+    <div>
+      <div class="name">Catch &amp; condense big pastes</div>
+      <div class="desc">claude.ai turns a huge paste into an attachment the Condense button can't reach. This keeps it inline and condensed instead.</div>
+    </div>
+  </label>
   <footer>Applies on claude.ai. Look for the ⟪ Condense button near your composer.</footer>
   <script src="lib/compress.js"></script>
   <script src="popup.js"></script>

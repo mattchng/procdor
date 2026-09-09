@@ -121,6 +121,26 @@ also two more pleasantry shapes slipped through: `"Was wondering if you could…
 
 the fragment fix would have meant hand-porting regex changes across `index.html` and `extension/lib/compress.js` again — the exact maintenance cost flagged earlier. so `index.html` now loads the shared engine via `<script src="extension/lib/compress.js">` (+ `const { RULES, compress, approxTokenCount } = window.ProcdorCompress;`) instead of carrying an inline copy. one engine now. only wrinkle: the test bench must be opened from a path where `extension/lib/compress.js` resolves relative to `index.html` (i.e. the repo root) — fine for `file://` in chrome, which allows sibling/subdir script loads.
 
+## large pastes become an attachment the button can't reach (2026-09-09)
+
+using it for real: pasting a big prompt (user said ">500 lines") into claude.ai turns it into a "PASTED" **file attachment** instead of composer text, so Procdor — which only reads the contenteditable — has nothing to work with.
+
+measured claude.ai's behaviour live (real cmd-v pastes, browser automation):
+- the trigger is **character count, not line count** — ~2900 chars over 600 short lines pasted inline fine; 20k / 30k / 40k single-line pasted inline; **~41k chars became an attachment**. so the threshold sits around 40–41k chars.
+- the attachment pill is `[data-testid="file-thumbnail"]`.
+- a **capture-phase `paste` listener on `window`** fires before claude.ai's own handler; `preventDefault()` + `stopImmediatePropagation()` fully suppresses the attachment, and our own `execCommand("insertText", …)` then populates the composer normally. (verified by injecting the listener into the live page.)
+
+**what shipped (`content.js`):**
+1. capture-phase `paste` listener. only acts when the pasted text is ≥ `PASTE_MIN_CHARS` (40000 — just under claude's threshold); everything smaller is left completely alone.
+2. on a big paste: run it through `compress()`, then `execCommand insertText` the result (or the original, if compression wasn't a size win) straight into the composer. either way the text lands **inline**, not as an attachment, so it's visible/editable and the Condense button can still work on it.
+3. `looksLikeCode()` guard — if >30% of the first 200 lines look like source/markup (indentation, trailing `;{}`, `def`/`function`/`import`/tag starts), skip the prose rules and just force it inline untouched, so a pasted file doesn't get mangled.
+4. gated by a popup toggle **"Catch & condense big pastes"** (`chrome.storage.sync` key `procdorPasteIntercept`, default on) so it can be turned off if someone wants claude's normal attachment behaviour.
+5. the badge (`flash`) was lifted to module scope so the paste handler can report `pasted · 12800→9t` / `pasted inline · 12800t`.
+
+**also (#3, the confusion moment):** clicking Condense with an empty composer but an attachment present now flashes `"text is in an attachment — can't read it"` instead of `"nothing typed yet"`.
+
+**not yet verified live** (needs an unpacked-extension reload, which can't be done from browser automation): the capture-phase listener registered from the content script's *isolated world* — as opposed to the page world, where it's proven — beating claude.ai's handler. Very likely fine (window capture is the earliest hook) but if big pastes still attach after reload, that's the reason and the fix is a `world: "MAIN"` shim.
+
 ## current status
 
-engine is now single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op and fragment-stripping fixes verified via a node harness on ~10 cases; **still need to reload the unpacked extension + a claude.ai tab to re-confirm live** (content-script file changes don't hot-reload). rules keep getting refined as we go rather than being "finished" first.
+engine is single-source (`extension/lib/compress.js`, loaded by both the extension and `index.html`). silent-no-op, fragment-stripping, non-win, and large-paste fixes are in; verified via node harness + live DOM probing, **but the reloaded extension hasn't been re-confirmed end-to-end on claude.ai yet** (content-script changes don't hot-reload). rules keep getting refined as we go rather than being "finished" first.

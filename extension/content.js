@@ -2,12 +2,22 @@
   const { compress, approxTokenCount, defaultRuleState } = window.ProcdorCompress;
 
   let ruleState = defaultRuleState();
-  chrome.storage.sync.get("procdorRules", (data) => {
+  let interceptLargePastes = true;
+
+  chrome.storage.sync.get(["procdorRules", "procdorPasteIntercept"], (data) => {
     if (data.procdorRules) ruleState = Object.assign(ruleState, data.procdorRules);
+    if (typeof data.procdorPasteIntercept === "boolean") {
+      interceptLargePastes = data.procdorPasteIntercept;
+    }
   });
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === "sync" && changes.procdorRules) {
+    if (area !== "sync") return;
+    if (changes.procdorRules) {
       ruleState = Object.assign(defaultRuleState(), changes.procdorRules.newValue);
+    }
+    if (changes.procdorPasteIntercept &&
+        typeof changes.procdorPasteIntercept.newValue === "boolean") {
+      interceptLargePastes = changes.procdorPasteIntercept.newValue;
     }
   });
 
@@ -19,6 +29,10 @@
     'div[contenteditable="true"][data-placeholder]',
     'div[contenteditable="true"]'
   ];
+
+  // The pill claude.ai shows when it has diverted a big paste into a file
+  // attachment instead of composer text.
+  const ATTACHMENT_SELECTOR = '[data-testid="file-thumbnail"]';
 
   function isVisibleAndSizable(el) {
     const rect = el.getBoundingClientRect();
@@ -55,6 +69,17 @@
     }
   }
 
+  // Badge feedback — shared by the button and the paste handler.
+  let badgeEl = null;
+  let hideTimer;
+  function flash(msg) {
+    if (!badgeEl) return;
+    badgeEl.textContent = msg;
+    badgeEl.classList.add("procdor-badge-show");
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => badgeEl.classList.remove("procdor-badge-show"), 3000);
+  }
+
   function buildButton() {
     const button = document.createElement("button");
     button.id = "procdor-condense-btn";
@@ -62,20 +87,12 @@
     button.textContent = "⟪ Condense";
     button.title = "Condense this prompt (Procdor)";
 
-    const badge = document.createElement("span");
-    badge.id = "procdor-badge";
-    button.appendChild(badge);
+    badgeEl = document.createElement("span");
+    badgeEl.id = "procdor-badge";
+    button.appendChild(badgeEl);
 
-    let hideTimer;
     // every click gives visible feedback — a silent no-op is indistinguishable
     // from a broken button
-    function flash(msg) {
-      badge.textContent = msg;
-      badge.classList.add("procdor-badge-show");
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => badge.classList.remove("procdor-badge-show"), 3000);
-    }
-
     button.addEventListener("click", () => {
       const composer = findComposer();
       if (!composer) {
@@ -85,7 +102,9 @@
 
       const original = getComposerText(composer);
       if (!original.trim()) {
-        flash("nothing typed yet");
+        flash(document.querySelector(ATTACHMENT_SELECTOR)
+          ? "text is in an attachment — can't read it"
+          : "nothing typed yet");
         return;
       }
 
@@ -120,6 +139,62 @@
     if (!findComposer()) return;
     document.body.appendChild(buildButton());
   }
+
+  // ---- large-paste interception ----
+  // Past ~40k characters claude.ai diverts a paste into a file attachment, which
+  // the Condense button then can't read. Catch the paste in the capture phase
+  // (before the app's own handler), condense it, and drop the result straight
+  // into the composer as ordinary text so it stays visible and editable.
+  // ~40000 shadows claude.ai's threshold as measured; adjust if that shifts.
+  const PASTE_MIN_CHARS = 40000;
+
+  // A pasted source file / data dump shouldn't be run through the prose rules —
+  // force it inline (so it's still reachable) but leave the text untouched.
+  function looksLikeCode(text) {
+    const lines = text.split("\n", 200);
+    if (lines.length < 5) return false;
+    let codey = 0;
+    for (const l of lines) {
+      if (/^\s{2,}\S/.test(l) ||
+          /[;{}]\s*$/.test(l) ||
+          /^\s*(def |class |function |import |from |const |let |var |public |private |#include|package |return |<\/?[a-zA-Z])/.test(l)) {
+        codey++;
+      }
+    }
+    return codey / lines.length > 0.3;
+  }
+
+  window.addEventListener("paste", (e) => {
+    if (!interceptLargePastes) return;
+    const composer = findComposer();
+    if (!composer) return;
+    if (e.target !== composer && !composer.contains(e.target)) return;
+
+    const cd = e.clipboardData;
+    if (!cd || (cd.files && cd.files.length)) return; // real file paste — leave it
+
+    const text = cd.getData("text/plain");
+    if (!text || text.length < PASTE_MIN_CHARS) return; // normal pastes: hands off
+
+    let output = text;
+    if (!looksLikeCode(text)) {
+      try {
+        const r = compress(text, ruleState);
+        if (r.output && r.output.trim() && r.output.length < text.length) output = r.output;
+      } catch (err) {
+        console.error("[Procdor] paste compress failed:", err);
+      }
+    }
+
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    composer.focus();
+    document.execCommand("insertText", false, output);
+
+    const before = approxTokenCount(text);
+    const after = approxTokenCount(output);
+    flash(output === text ? `pasted inline · ${before}t` : `pasted · ${before}→${after}t`);
+  }, true);
 
   ensureButton();
 
